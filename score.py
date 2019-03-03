@@ -24,6 +24,7 @@ class score:
         self.input_x_1 = tf.placeholder(tf.int32, [None, sequence_length], name="input_x_1")
         self.input_x_2 = tf.placeholder(tf.int32, [None,sequence_length], name="input_x_2")
         self.label=tf.placeholder(tf.float32, [None], name="label")
+        self.lengths=tf.placeholder(tf.int32,[None],name='lengths')
         
         
         
@@ -52,7 +53,7 @@ class score:
 
         with tf.name_scope("prepare"):
             q  =tf.nn.embedding_lookup(self.Embedding_W, self.input_x_1)
-            pos=(self.Embedding_W, self.input_x_2)
+            pos=tf.nn.embedding_lookup(self.Embedding_W, self.input_x_2)
             
         self.x12=self.data_concat(q,pos)
 
@@ -60,18 +61,22 @@ class score:
         bw_cell = tf.nn.rnn_cell.LSTMCell(hidden_size,forget_bias=1.0)
         with tf.variable_scope("dis"):
            
-            self.outputs122,_,_=tf.contrib.rnn.static_bidirectional_rnn(fw_cell,bw_cell,self.x12,dtype=tf.float32,scope='xx')
-            outputs12=tf.transpose(self.outputs122,[1,0,2])
-            outputs12=tf.reshape(outputs12,[-1,2*hidden_size*sequence_length])        
+            outputs, states=tf.nn.bidirectional_dynamic_rnn(fw_cell,bw_cell,self.x12,sequence_length=self.lengths,dtype=tf.float32)
+            
+            states_fw, states_bw = states
+            c_f, h_f = states_fw
+            c_b, h_b= states_bw
+
+            self.lstm_out=tf.concat([h_f,h_b],1)   
 
 
         with tf.variable_scope('MLP'):
-            self.W1 = tf.get_variable('w1',[2*hidden_size*sequence_length,1], initializer=tf.truncated_normal_initializer(mean=0.0, stddev=0.1))
+            self.W1 = tf.get_variable('w1',[2*hidden_size,1], initializer=tf.truncated_normal_initializer(mean=0.0, stddev=0.1))
             self.b1 = tf.get_variable('b1',[1],initializer=tf.constant_initializer(0.0))
             #self.W2 = tf.get_variable('w2',[self.hidden_size,1],initializer=tf.truncated_normal_initializer(mean=0.0, stddev=0.1))
 
             #self.score=tf.matmul(tf.nn.tanh(tf.nn.xw_plus_b(outputs12, self.W1, self.b1)), self.W2)
-            self.score=tf.nn.xw_plus_b(outputs12, self.W1, self.b1)
+            self.score=tf.nn.xw_plus_b(self.lstm_out, self.W1, self.b1)
             self.score=tf.squeeze(self.score)
 
             tf.summary.histogram('score', self.score)
@@ -82,10 +87,5 @@ class score:
         mulq=tf.multiply(q,a)
         subq=tf.abs(tf.subtract(q,a))
         x=tf.concat([mulq,subq],2)
-        x=tf.transpose(x,[1,0,2])
-        x=tf.reshape(x,[-1,3*self.embedding_size])
-        x=tf.split(x,self.sequence_length)
-        return x
-    def qa_concat(self,q,a):
 
-    
+        return x

@@ -30,11 +30,11 @@ tf.flags.DEFINE_integer("embedding_dim", 100, "Dimensionality of character embed
 
 
 
-tf.flags.DEFINE_float("l2_reg_lambda", 0, "L2 regularizaion lambda (default: 0.0)")
+tf.flags.DEFINE_float("l2_reg_lambda", 0.01, "L2 regularizaion lambda (default: 0.0)")
 tf.flags.DEFINE_float("learning_rate", 0.05, "learning_rate (default: 0.1)")
 
 # Training parameters
-tf.flags.DEFINE_integer("hidden_size", 100, "Hidden Size (default: 100)")
+tf.flags.DEFINE_integer("hidden_size", 50, "Hidden Size (default: 100)")
 tf.flags.DEFINE_integer("batch_size", 25, "Batch Size (default: 64)")
 tf.flags.DEFINE_integer("num_epochs", 10000, "Number of training epochs (default: 200)")
 tf.flags.DEFINE_integer("evaluate_every", 10, "Evaluate model on dev set after this many steps (default: 100)")
@@ -61,7 +61,7 @@ print(("Loading data..."))
 vocab =      data_helper.build_vocab()  # 加载vocab,需修改参数 QA Web 默认是QA
 embeddings =data_helper.load_vectors(vocab) #需修改参数 QA Web
 alist = data_helper.read_alist("WebAP")  # 加载所有例子里的回答
-raw = data_helper.read_raw("WebAP")  # 加载正例的所有内容
+#raw = data_helper.read_raw("WebAP")  # 加载正例的所有内容
 qs=data_helper.qname("WebAP/qeo-train.txt")
 number=data_helper.qid("WebAP/qeo-train.txt")
 numbertest=data_helper.qid("WebAP/qeo-test.txt")
@@ -76,6 +76,7 @@ test2List = data_helper.loadTestSet(dataset="WebAP",filename="term-train")
 
 print("Load done...")
 precision = 'WebAP/log/test1.dns' + timeStamp
+precision1 ='WebAP/logtrain/train.dns' + timeStamp
 loss_precision = 'WebAP/log/qterm.gan_loss' + timeStamp
 
 from functools import wraps
@@ -105,10 +106,11 @@ def generate_uniform_pair():
 
         pools=[]
         termpools=[] 
+        #items中含有标签 问题长度 问题编号 问题 回答 
         for z in neg_alist_index:
             pools.append(alist[z])
         for pool in pools:
-            termpools.append(pool[3])
+            termpools.append(pool[4])
         termpools=np.array(termpools)
         neg_index=[i for i in range(len(pools))]
 
@@ -119,14 +121,23 @@ def generate_uniform_pair():
                 neg_index.remove(indexi)
         for  pair in pools:
             label=pair[0]
+            #print(pair)
             if int(label)==int(1) and len(neg_index) > 0:
-                qq = pair[2]
-                aa=pair[3]
+                qq = pair[3]
+                aa=pair[4]
+                pos_len=pair[1]
+                #print(pos_len)
                 neg=termpools[neg_index]
+
                 neg_samples = np.random.choice(neg, size=1, replace=False)
                 #print(neg_samples)
                 for neg in neg_samples:
-                    samples.append([encode_sent(vocab, item, FLAGS.max_sequence_length) for item in [qq, aa, neg]])
+                    samples.append([encode_sent(vocab, qq, FLAGS.max_sequence_length),
+                    encode_sent(vocab, aa, FLAGS.max_sequence_length),
+                    encode_sent(vocab, neg, FLAGS.max_sequence_length),
+                    int(pos_len)
+                    ])
+                    
         count=count+i
     return samples
 
@@ -156,7 +167,7 @@ def dev_step(sess, cnn, testList):
         feed_dict = {
             cnn.input_x_1: x_test_1,
             cnn.input_x_2: x_test_2,  # x_test_2 equals x_test_3 for the test case
-
+            cnn.lengths:x_test_3
             }
         predicted = sess.run(cnn.score, feed_dict)
         for index,s in enumerate(predicted):
@@ -190,7 +201,8 @@ def dev_step2(sess, cnn, testList):
         x_test_1, x_test_2, x_test_3 = data_helper.load_val_batch(testList, vocab,sum1,i)
         feed_dict = {
             cnn.input_x_1: x_test_1,
-            cnn.input_x_2: x_test_2,  # x_test_2 equals x_test_3 for the test case
+            cnn.input_x_2: x_test_2,# x_test_2 equals x_test_3 for the test case
+            cnn.lengths:x_test_3
             }
         predicted = sess.run(cnn.score, feed_dict)
         for index,s in enumerate(predicted):
@@ -228,7 +240,7 @@ def evaluation(sess, model, log, num_epochs=0):
 
     ndcg3,ndcg5,ndcg10,ndcg20 = dev_step(sess, model, test1List)
     line = this+" type: %s test1: %d epoch: ndcg3 %f ndcg5 %f ndcg10 %f ndcg20 %f" % (model_type,current_step,ndcg3,ndcg5,ndcg10,ndcg20)
-    print(line)
+    #print(line)
     #print(model.save_model(sess, ndcg3))
     log.write(line + "\n")
     log.flush()
@@ -248,6 +260,8 @@ def evaluation2(sess, model, log, num_epochs=0):
     line = this+" type: %s traintest1: %d epoch: ndcg3 %f ndcg5 %f ndcg10 %f ndcg20 %f" % (model_type,current_step,ndcg3,ndcg5,ndcg10,ndcg20)
     print(line)
     #print(model.save_model(sess, ndcg3))
+    log.write(line + "\n")
+    log.flush()
    
 
 
@@ -258,7 +272,7 @@ def main():
                 allow_soft_placement=FLAGS.allow_soft_placement,
                 log_device_placement=FLAGS.log_device_placement)
             sess = tf.Session(config=session_conf)
-            with sess.as_default() ,open(precision,"w") as log:
+            with sess.as_default() ,open(precision,"w") as log,open(precision1,'w') as log1:
                     # DIS_MODEL_FILE="model/Discriminator20170107122042.model"
                     # param = pickle.load(open(DIS_MODEL_FILE))
                     # print( param)
@@ -303,12 +317,21 @@ def main():
                                 q.extend(batch[:,0])
                                 q.extend(batch[:,0])
                                 q = np.asarray(q)  
+                                lengths=[]
+                                lengths.extend(batch[:,3])
+                                lengths.extend(batch[:,3])
+                                lengths=np.asarray(lengths)
+                                # print(pred_data.shape)
+                                # print(pred_data_label.shape)
+                                # print(q.shape)
+                                # print(lengths.shape)
 
                                     
                                 feed_dict = {
                                         discriminator.input_x_1: q,
                                         discriminator.input_x_2: pred_data,
-                                        discriminator.label: pred_data_label
+                                        discriminator.label: pred_data_label,
+                                        discriminator.lengths:lengths
                                     }
                                 
                              
@@ -322,7 +345,7 @@ def main():
                                 #print(score)
 
                             evaluation(sess,discriminator,log,i)
-                            evaluation2(sess,discriminator,log,i)   
+                            evaluation2(sess,discriminator,log1,i)   
                         # if(i % 10 == 0): #每50次写一次日志
                         #     zzz=np.array(samples)
                         #     result = sess.run(merged,feed_dict={

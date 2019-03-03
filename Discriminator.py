@@ -27,7 +27,7 @@ class Discriminator(score):
             self.reward = (tf.sigmoid(self.score) - 0.5) * 2
 
             self.global_step = tf.Variable(0, name="global_step", trainable=False)
-            optimizer = tf.train.GradientDescentOptimizer(self.learning_rate)
+            optimizer = tf.train.AdagradOptimizer(self.learning_rate)
             grads_and_vars = optimizer.compute_gradients(self.loss)
             self.capped_gvs = [(tf.clip_by_value(grad, -1., 1.), var) for grad, var in grads_and_vars]
             self.train_op = optimizer.apply_gradients(self.capped_gvs, global_step=self.global_step)

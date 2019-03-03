@@ -51,21 +51,24 @@ def load_vectors(vocab=None):
             random_embeding=np.random.uniform(-1,1,100).tolist()
             embeddings.append(random_embeding)
     return embeddings 
+
 def read_alist(dataset="QA1"):
     alist = []
     for line in open(dataset+'/qe/term-train'):#what mean
         items = line.strip().split(' ')
-        #items中含有标签 问题编号 问题 回答 
-        alist.append(items)  #alist里仅加载了回答 train里的所有回答
-        print(items)
+        #items中含有标签 问题长度 问题编号 问题 回答 
+        alist.append(items)  
+        #print(items)
     print('read_alist done ......')
     return alist
+
 def loadCandidateSamples(q,a,candidates,vocab):
     samples=[]
     
     for neg in candidates:
         samples.append((encode_sent(vocab,q,20),encode_sent(vocab,a,20),encode_sent(vocab,neg,20)))
     return  samples
+
 #raw里加载了标签为1的例子里的所有内容
 def read_raw(dataset="QA1"):
     raw = []
@@ -83,6 +86,7 @@ def encode_sent(vocab, string,size):
         else:
             x.append(vocab['UNKNOWN'])
     return x
+
 def loadTestSet(dataset="QA1",filename="term"):
     testList = []
     for line in open(dataset+'/qe/'+filename):
@@ -102,18 +106,20 @@ def load_train_random(vocab, alist, raw, size):
         x_train_3.append(encode_sent(vocab, nega, 20))
     return np.array(x_train_1), np.array(x_train_2), np.array(x_train_3)
 #需要修改
+
 def load_val_batch(testList, vocab, index, batch):
     x_train_1 = []
     x_train_2 = []
     x_train_3 = []
+    #items中含有标签 问题长度 问题编号 问题 回答
     for i in range(0, batch):
         true_index = index + i
         if (true_index >= len(testList)):
             true_index = len(testList) - 1
         items = testList[true_index].split(' ')
-        x_train_1.append(encode_sent(vocab, items[2], 20))
-        x_train_2.append(encode_sent(vocab, items[3], 20))
-        x_train_3.append(encode_sent(vocab, items[3], 20))
+        x_train_1.append(encode_sent(vocab, items[3], 20))
+        x_train_2.append(encode_sent(vocab, items[4], 20))
+        x_train_3.append(int(items[1]))
     return np.array(x_train_1), np.array(x_train_2), np.array(x_train_3)
 
 
