@@ -40,11 +40,7 @@ class score:
                         name="random_W") 
                 else:
                     self.Embedding_W = tf.Variable(np.array(self.embeddings),name="embedding_W" ,dtype="float32",trainable=False)
-            else:
-                print ("load embeddings")
-                self.Embedding_W=tf.Variable(self.paras[0],trainable=False,name="embedding_W")
-            self.updated_paras.append(self.Embedding_W)
-
+           
         self.l2_loss = tf.constant(0.0)
         #给矩阵算一个平均值
        

@@ -22,7 +22,7 @@ class Discriminator(score):
     
         with tf.name_scope("output"):
 
-            self.loss = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=self.score, labels=self.label)) + self.l2_reg_lambda * self.l2_loss
+            self.loss = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=self.score, labels=self.label)) 
             
             self.reward = (tf.sigmoid(self.score) - 0.5) * 2
 
