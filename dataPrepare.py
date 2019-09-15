@@ -6,9 +6,9 @@ Created on Thu Jan  4 20:53:51 2018
 """
 
 
-def convert2TSV(dataset="QA1"):
+def convert2TSV(dataset="/QA1",type='train'):
     lines=[]
-    with open(dataset+'/qemax-test.txt', 'r', encoding='utf-8') as f:
+    with open(dataset+'/' + type + '.txt', 'r', encoding='utf-8') as f:
         ss=f.readlines()
         for s in ss:
             item=s.strip().split(' ')
@@ -22,13 +22,13 @@ def convert2TSV(dataset="QA1"):
             line= "\t".join((qid,str(qlen),query, term, label))
             lines.append(line)
             print(line)
-    filename= dataset+"/original/term-test.tsv"
+    filename= dataset+"/original/term-" + type +".tsv"
     with open(filename, "w",encoding='utf-8') as f:
         print(filename)
         f.write("\n".join(lines) ) 
     return filename
-def qid(dataset="QA1"):
-    with open(dataset+'/qeo-test.txt', 'r', encoding='utf-8') as f:
+def qid(dataset = "/QA1",type = 'train' ):
+    with open(dataset+'/qeo-'+type+'.txt', 'r', encoding='utf-8') as f:
         ss=f.readlines()
         number=[]
         for s in ss:
@@ -36,9 +36,9 @@ def qid(dataset="QA1"):
             num=len(item)-1
             number.append(num)
     return number
-def convert2TSVtrue(dataset="QA1"):
+def convert2TSVtrue(dataset="/QA1",type='train'):
     lines=[]
-    with open(dataset+'/qemax-test.txt', 'r', encoding='utf-8') as f:
+    with open(dataset+'/'+type+'.txt', 'r', encoding='utf-8') as f:
         ss=f.readlines()
         for s in ss:
             item=s.strip().split(' ')
@@ -52,14 +52,14 @@ def convert2TSVtrue(dataset="QA1"):
             if(label=="1"):
                   line= "\t".join((qid,str(qlen),query, term, label))
                   lines.append(line)
-    filename= dataset+"/original/groundTruth-test.tsv"#true
+    filename= dataset+"/original/groundTruth-"+type+".tsv"
     with open(filename, "w",encoding='utf-8') as f:
         print(filename)
         f.write("\n".join(lines) ) 
     return filename
-def format_file(dataset="QA1",s="term-train"):
-    filename=dataset+"/original/"+s+".tsv"
-    temp_file=dataset+"/qe/"+s
+def format_file(dataset="QA1",type1="train",type2='term-'):
+    filename=dataset+"/original/"+type2+type1+".tsv"
+    temp_file=dataset+"/qe/"+type2+type1
     print(temp_file)
     with open(filename,'r',encoding='utf-8') as f, open(temp_file,"w",encoding='utf-8') as out:
         for index, line in enumerate(f):
@@ -80,12 +80,16 @@ def format_file(dataset="QA1",s="term-train"):
     return temp_file
 
 if __name__ == "__main__":
-	# parseTrain()
-    convert2TSV(dataset="WebAP") 
-    convert2TSVtrue(dataset="WebAP")
-    format_file(dataset="WebAP",s="term-test")
-    format_file(dataset="WebAP",s="groundTruth-test")
-    number=qid(dataset="WebAP")
-    print(number)
+    dataset='../WebAP'
+    type1='test'
+    type2='term-'
+    type22='groundTruth-'
+    convert2TSV(dataset,type1) 
+    convert2TSVtrue(dataset,type1)
+    format_file(dataset,type1,type2)
+    format_file(dataset,type1,type22)
+    #number=qid(dataset="WebAP")
+    #print(number)
+    print(dataset+' dataset was done.')
     
     
