@@ -1,8 +1,3 @@
-#coding=utf-8
-#! /usr/bin/env python3.4
-
-
-# coding=utf-8
 import numpy as np
 import traceback
 import os
@@ -23,12 +18,9 @@ import Discriminator
 from data_helper import encode_sent
 import data_helper
 
-# import dataHelper   
 # Model Hyperparameters
 tf.flags.DEFINE_integer("max_sequence_length", 20, "Max sequence length fo sentence (default: 200)")
 tf.flags.DEFINE_integer("embedding_dim", 100, "Dimensionality of character embedding (default: 128)")
-
-
 
 tf.flags.DEFINE_float("l2_reg_lambda", 0.01, "L2 regularizaion lambda (default: 0.0)")
 tf.flags.DEFINE_float("learning_rate", 0.05, "learning_rate (default: 0.1)")
@@ -39,13 +31,6 @@ tf.flags.DEFINE_integer("batch_size", 25, "Batch Size (default: 64)")
 tf.flags.DEFINE_integer("num_epochs", 10000, "Number of training epochs (default: 200)")
 tf.flags.DEFINE_integer("evaluate_every", 10, "Evaluate model on dev set after this many steps (default: 100)")
 tf.flags.DEFINE_integer("checkpoint_every", 100, "Save model after this many steps (default: 100)")
-tf.flags.DEFINE_integer("pools_size", 50, "The sampled set of a positive ample, which is bigger than 500")
-tf.flags.DEFINE_integer("gen_pools_size", 20, "The sampled set of a positive ample, which is bigger than 500")
-tf.flags.DEFINE_integer("g_epochs_num", 2, " the num_epochs of generator per epoch")
-tf.flags.DEFINE_integer("d_epochs_num", 5, " the num_epochs of discriminator per epoch")
-tf.flags.DEFINE_integer("sampled_size", 100, " the real selectd set from the The sampled pools")
-tf.flags.DEFINE_integer("sampled_temperature", 3, " the temperature of sampling")
-tf.flags.DEFINE_integer("gan_k", 10, "he number of samples of gan")
 # Misc Parameters
 tf.flags.DEFINE_boolean("allow_soft_placement", True, "Allow device soft device placement")
 tf.flags.DEFINE_boolean("log_device_placement", False, "Log placement of ops on devices")
@@ -58,21 +43,16 @@ timeStamp = time.strftime("%Y%m%d%H%M%S", time.localtime(int(time.time())))
 
 print(("Loading data..."))
 
-vocab =      data_helper.build_vocab()  # 加载vocab,需修改参数 QA Web 默认是QA
+vocab = data_helper.build_vocab()  # 加载vocab,需修改参数 QA Web 默认是QA
 embeddings =data_helper.load_vectors(vocab) #需修改参数 QA Web
 alist = data_helper.read_alist("WebAP")  # 加载所有例子里的回答
-#raw = data_helper.read_raw("WebAP")  # 加载正例的所有内容
 qs=data_helper.qname("WebAP/qeo-train.txt")
 number=data_helper.qid("WebAP/qeo-train.txt")
 numbertest=data_helper.qid("WebAP/qeo-test.txt")
 qstest=data_helper.qname("WebAP/qeo-test.txt")
-# 加载了几个测试集
 test1List = data_helper.loadTestSet(dataset="WebAP",filename="term-test")
 test2List = data_helper.loadTestSet(dataset="WebAP",filename="term-train")
-#devList = insurance_qa_data_helpers.loadTestSet("dev")
-#testSet = [("test1", test1List), ("test2", test2List), ("dev", v
 
-# devList)]
 
 print("Load done...")
 precision = 'WebAP/log/test1.dns' + timeStamp
@@ -90,13 +70,13 @@ def log_time_delta(func):
         ret = func(*args, **kwargs)
         end = time.time()
         delta = end - start
-        print("%s runed %.2f seconds" % (func.__name__, delta))
+        #print("%s runed %.2f seconds" % (func.__name__, delta))
         return ret
 
     return _deco
 
 @log_time_delta
-def generate_uniform_pair():
+def generate_uniform():
     samples = []
     count=0
     for _index,i in enumerate(number):
@@ -141,6 +121,25 @@ def generate_uniform_pair():
         count=count+i
     return samples
 
+@log_time_delta
+def test(sess, cnn, testList,merged):
+    label = []
+    sum_pair = 0
+    for i in numbertest:
+        sum_pair += i 
+    for line in testList:
+        label_item = int(line[0])
+        label.append(label_item)
+    
+    x_test_1, x_test_2, x_test_3 = data_helper.load_val_batch(testList, vocab,0,sum_pair)
+    feed_dict = {
+        cnn.input_x_1: x_test_1,
+        cnn.input_x_2: x_test_2,  # x_test_2 equals x_test_3 for the test case
+        cnn.lengths:x_test_3,
+        cnn.label : np.array(label)
+        }
+    summary,acc = sess.run([merged,cnn.accuracy], feed_dict)
+    return summary,acc
  
 def dcg_at_k(r, k):
     r = np.asfarray(r)[:k] 
@@ -153,8 +152,6 @@ def ndcg_at_k(r, k):
         return 0.
     return dcg_at_k(r, k) / dcg_max
 
-
-@log_time_delta
 def dev_step(sess, cnn, testList):
     ndcg3=[]
     ndcg5=[]
@@ -189,6 +186,8 @@ def dev_step(sess, cnn, testList):
 
 
         return sum(ndcg3) * 1.0 / len(ndcg3),sum(ndcg5) * 1.0 / len(ndcg5),sum(ndcg10) * 1.0 / len(ndcg10),sum(ndcg20) * 1.0 / len(ndcg20)
+
+
 @log_time_delta
 def dev_step2(sess, cnn, testList):
     ndcg3=[]
@@ -204,7 +203,7 @@ def dev_step2(sess, cnn, testList):
             cnn.input_x_2: x_test_2,# x_test_2 equals x_test_3 for the test case
             cnn.lengths:x_test_3
             }
-        predicted = sess.run(cnn.score, feed_dict)
+        predicted = sess.run(cnn.score, feed_dict)       
         for index,s in enumerate(predicted):
             line = testList[sum1+index]
             term=line[0]
@@ -216,13 +215,10 @@ def dev_step2(sess, cnn, testList):
         r = []
         for j in query_sort:
            r.append(j)
-
         ndcg3.append(ndcg_at_k(r, 3))
         ndcg5.append(ndcg_at_k(r, 5))
         ndcg10.append(ndcg_at_k(r, 10))
         ndcg20.append(ndcg_at_k(r, 20))
-
-
 
         return sum(ndcg3) * 1.0 / len(ndcg3),sum(ndcg5) * 1.0 / len(ndcg5),sum(ndcg10) * 1.0 / len(ndcg10),sum(ndcg20) * 1.0 / len(ndcg20)
 
@@ -236,11 +232,9 @@ def evaluation(sess, model, log, num_epochs=0):
     now=time.time()
     local_time=time.localtime(now)
     this=str(time.strftime('%Y-%m-%d %H:%M:%S',local_time))
-    
-
     ndcg3,ndcg5,ndcg10,ndcg20 = dev_step(sess, model, test1List)
     line = this+" type: %s test1: %d epoch: ndcg3 %f ndcg5 %f ndcg10 %f ndcg20 %f" % (model_type,current_step,ndcg3,ndcg5,ndcg10,ndcg20)
-    #print(line)
+    print(line)
     #print(model.save_model(sess, ndcg3))
     log.write(line + "\n")
     log.flush()
@@ -273,13 +267,10 @@ def main():
                 log_device_placement=FLAGS.log_device_placement)
             sess = tf.Session(config=session_conf)
             with sess.as_default() ,open(precision,"w") as log,open(precision1,'w') as log1:
-                    # DIS_MODEL_FILE="model/Discriminator20170107122042.model"
-                    # param = pickle.load(open(DIS_MODEL_FILE))
-                    # print( param)
+                 
                     param= None
                     loss_type = "point"
-                    #DIS_MODEL_FILE="model/pre-trained.model"
-                    #param = pickle.load(open(DIS_MODEL_FILE,"rb"))
+                    
                     discriminator = Discriminator.Discriminator(
                     sequence_length=FLAGS.max_sequence_length,
                     batch_size=FLAGS.batch_size,
@@ -289,72 +280,67 @@ def main():
                     embeddings=embeddings,
                     hidden_size=FLAGS.hidden_size,
                     paras=None,
-                    loss=loss_type)
+                    loss_type=loss_type)
 
-                    saver = tf.train.Saver()    
+                    # saver = tf.train.Saver()    
+                  
+                    # merged = tf.summary.merge_all()
+                    # train_writer = tf.summary.FileWriter('tensorboard_train',sess.graph)
+                    # test_writer = tf.summary.FileWriter('tensorboard_test')
                     sess.run(tf.global_variables_initializer())
-                    # evaluation(sess,discriminator,log,0)
-                    merged = tf.summary.merge_all() #将图形、训练过程等数据合并在一起
-                    writer = tf.summary.FileWriter('logss',sess.graph) #将训练日志写入到logs文件夹下
-                    writer.close()
-
+                   
                     for i in range(FLAGS.num_epochs):
-                        # x1,x2,x3=generate_dns(sess,discriminator)
-                        # samples=generate_dns(sess,discriminator)#generate_uniform_pair() #generate_dns(sess,discriminator) #generate_uniform() #                        
-                        samples=generate_uniform_pair() #generate_uniform() # generate_uniform_pair() #                     
-                        for j in range(1):
-                            for batch in data_helper.batch_iter(samples,batch_size=FLAGS.batch_size,num_epochs=1,shuffle=True):  
+                        
+                        samples=generate_uniform() 
+                        
+                        for batch in data_helper.batch_iter(samples,batch_size=FLAGS.batch_size,
+                            num_epochs=1,shuffle=True):  
                                   # try:
-                                pred_data=[]
-                                pred_data.extend(batch[:,1])
-                                pred_data.extend(batch[:,2])
-                                pred_data = np.asarray(pred_data)
-                                pred_data_label=[]
-                                pred_data_label = [1.0] * len(batch[:,1])
-                                pred_data_label.extend([0.0] * len(batch[:,2]))
-                                pred_data_label = np.asarray(pred_data_label)  
-                                q = []
-                                q.extend(batch[:,0])
-                                q.extend(batch[:,0])
-                                q = np.asarray(q)  
-                                lengths=[]
-                                lengths.extend(batch[:,3])
-                                lengths.extend(batch[:,3])
-                                lengths=np.asarray(lengths)
-                                # print(pred_data.shape)
-                                # print(pred_data_label.shape)
-                                # print(q.shape)
-                                # print(lengths.shape)
-
-                                    
-                                feed_dict = {
-                                        discriminator.input_x_1: q,
-                                        discriminator.input_x_2: pred_data,
-                                        discriminator.label: pred_data_label,
-                                        discriminator.lengths:lengths
-                                    }
+                            pred_data=[]
+                            pred_data.extend(batch[:,1])
+                            pred_data.extend(batch[:,2])
+                            pred_data = np.asarray(pred_data)
+                            pred_data_label=[]
+                            pred_data_label = [1.0] * len(batch[:,1])
+                            pred_data_label.extend([0.0] * len(batch[:,2]))
+                            pred_data_label = np.asarray(pred_data_label)  
+                            q = []
+                            q.extend(batch[:,0])
+                            q.extend(batch[:,0])
+                            q = np.asarray(q)  
+                            lengths=[]
+                            lengths.extend(batch[:,3])
+                            lengths.extend(batch[:,3])
+                            lengths=np.asarray(lengths)
+                            
                                 
+                            feed_dict = {
+                                    discriminator.input_x_1: q,
+                                    discriminator.input_x_2: pred_data,
+                                    discriminator.label: pred_data_label,
+                                    discriminator.lengths:lengths
+                                }
+                                
+                                
+
+                            _, accuracy,step, current_loss,score = sess.run(
+                                    [discriminator.train_op,discriminator.accuracy,
+                                    discriminator.global_step,
+                                        discriminator.loss,discriminator.score],
+                                    feed_dict)
+                            # train_writer.add_summary(summary, i)
+                                
+                            time_str = datetime.datetime.now().isoformat()
                              
-                                _, step,    current_loss,score = sess.run(
-                                        [discriminator.train_op, discriminator.global_step, discriminator.loss,discriminator.score],
-                                        feed_dict)
-
-                                time_str = datetime.datetime.now().isoformat()
-                                #print(("%s: DIS step %d, loss %f "%(time_str, step, current_loss)))
-
-                                #print(score)
-
+                            
+                        # summary_test,accuracy_test = test(sess, discriminator, test1List,merged)
+                        # print("test_epoch:"+str(i)+" accuracy:"+str(accuracy_test))
+                        # test_writer.add_summary(summary_test,i)
+                        if(i%3==0):
+                            evaluation2(sess,discriminator,log1,i)
                             evaluation(sess,discriminator,log,i)
-                            evaluation2(sess,discriminator,log1,i)   
-                        # if(i % 10 == 0): #每50次写一次日志
-                        #     zzz=np.array(samples)
-                        #     result = sess.run(merged,feed_dict={
-                        #                                         discriminator.input_x_1: zzz[:,0],
-                        #                                         discriminator.input_x_2: zzz[:,1],
-                        #                                         discriminator.input_x_3: zzz[:,2]
-                        #                                         }) #计算需要写入的日志数据
-                        #     #writer.add_summary(result,i) #将日志数据写入文件   
-
+                            
+                      
 
 if __name__ == '__main__':
     try:
