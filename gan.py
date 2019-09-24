@@ -9,10 +9,6 @@ import random
 import tensorflow as tf
 import pickle
 import copy
-
-
-
-
 import json
 
 import Discriminator
@@ -41,7 +37,7 @@ tf.flags.DEFINE_integer("gen_pools_size", 20, "The sampled set of a positive amp
 tf.flags.DEFINE_integer("g_epochs_num", 2, " the num_epochs of generator per epoch")
 tf.flags.DEFINE_integer("d_epochs_num", 5, " the num_epochs of discriminator per epoch")
 tf.flags.DEFINE_integer("sampled_size", 100, " the real selectd set from the The sampled pools")
-tf.flags.DEFINE_integer("sampled_temperature", 3, " the temperature of sampling")
+tf.flags.DEFINE_integer("sampled_temperature", 0.5, " the temperature of sampling")
 tf.flags.DEFINE_integer("gan_k", 10, "he number of samples of gan")
 # Misc Parameters
 tf.flags.DEFINE_boolean("allow_soft_placement", True, "Allow device soft device placement")
@@ -55,14 +51,15 @@ timeStamp = time.strftime("%Y%m%d%H%M%S", time.localtime(int(time.time())))
 
 print(("Loading data..."))
 
-vocab =      data_helper.build_vocab()  
-embeddings =data_helper.load_vectors(vocab) 
+vocab = data_helper.build_vocab()  
+embeddings = data_helper.load_vectors(vocab) 
 alist = data_helper.read_alist("WebAP")  
 raw = data_helper.read_raw("WebAP")  
-qs=data_helper.qname("WebAP/qeo-train.txt")
-number=data_helper.qid("WebAP/qeo-train.txt")
-numbertest=data_helper.qid("WebAP/qeo-test.txt")
-qstest=data_helper.qname("WebAP/qeo-test.txt")
+qs = data_helper.qname("WebAP/qeo-train.txt")
+number = data_helper.qid("WebAP/qeo-train.txt")
+
+numbertest = data_helper.qid("WebAP/qeo-test.txt")
+qstest = data_helper.qname("WebAP/qeo-test.txt")
 # 加载了几个测试集
 test1List = data_helper.loadTestSet(dataset="WebAP",filename="term-test")
 
@@ -91,35 +88,37 @@ def generate_gan(sess, model, loss_type="point"):
     samples = []
     count=0
     for index,i in enumerate(number):
-        if i==0:
+        if i == 0:
             continue
         neg_alist_index = [j for j in range(count,count+i)]
-        pools=[]
-        termpools=[]
-        pos_number=0
-        pos_term=[]
-        length=[]
+        pools = []
+        termpools = []
+        pos_term = []
+        length = []
+        query = ''
+        flag = 0
         for neg in neg_alist_index:
             pools.append(alist[neg])
         for pool in pools:
-            termpools.append(pool[3])
+            termpools.append(pool[4])
         termpools=np.array(termpools)
 
         for  pair in pools:
-            label=pair[0]
-            length.append(pair[1])
-            if int(label) == int(1):
-                pos_number += 1
+            if flag == 0:
                 query = pair[3]
+                flag = 1
+            label=pair[0]
+            length.append(int(pair[1]))
+            if int(label) == int(1):
                 pos=pair[4]
                 pos_term.append(pos)
                 
         candidata_list_score = []
-        canditates = data_helper.loadCandidateSamples(qq,termpools, vocab)
+        canditates = data_helper.loadCandidateSamples(query,termpools,vocab,length)
         for batch in data_helper.batch_iter(canditates, batch_size=FLAGS.batch_size):
-            feed_dict = {model.input_x_1: batch[:,0], 
-                        model.input_x_2: batch[:,1],
-                        model.length:length}
+            feed_dict = {model.input_x_1: np.array(batch[:,0]), 
+                        model.input_x_2: np.array(batch[:,1]),
+                        model.length: np.array(batch[:2])}
             predicated = sess.run(model.gan_score, feed_dict)
             candidate_list_score.extend(predicated)
         #softmax for candicate
@@ -131,12 +130,12 @@ def generate_gan(sess, model, loss_type="point"):
         # for neg in neg_samples:
         #     samples.append([encode_sent(vocab, item, FLAGS.max_sequence_length) for item in [qq, aa, neg]])
         for j in pos_term:
-            samples.append([
+            samples.append((
             encode_sent(vocab,query,FLAGS.max_sequence_length),
             encode_sent(vocab,pos_term[j],FLAGS.max_sequence_length),
             encode_sent(vocab,neg_samples[j],FLAGS.max_sequence_length),
-            length[0]
-            ])
+            int(length[0])
+            ))
         count=count+i
         random.shuffle(samples)
     return samples
@@ -172,8 +171,8 @@ def ndcg_at_k(r, k):
         return 0.
     return dcg_at_k(r, k) / dcg_max
 
-
-def dev_step(sess, cnn, testList):
+@log_time_delta
+def dev_step1(sess, cnn, testList):
     ndcg3=[]
     ndcg5=[]
     ndcg10=[]
@@ -244,7 +243,7 @@ def dev_step2(sess, cnn, testList):
         return sum(ndcg3) * 1.0 / len(ndcg3),sum(ndcg5) * 1.0 / len(ndcg5),sum(ndcg10) * 1.0 / len(ndcg10),sum(ndcg20) * 1.0 / len(ndcg20)
 
 @log_time_delta
-def evaluation(sess, model, log, num_epochs=0):
+def evaluation1(sess, model, log, num_epochs=0):
     current_step = tf.train.global_step(sess, model.global_step)
     if isinstance(model, Discriminator.Discriminator):
         model_type = "Dis"
@@ -253,13 +252,14 @@ def evaluation(sess, model, log, num_epochs=0):
     now=time.time()
     local_time=time.localtime(now)
     this=str(time.strftime('%Y-%m-%d %H:%M:%S',local_time))
-    ndcg3,ndcg5,ndcg10,ndcg20 = dev_step(sess, model, test1List)
+    ndcg3,ndcg5,ndcg10,ndcg20 = dev_step1(sess, model, test1List)
     line = this+" type: %s test1: %d epoch: ndcg3 %f ndcg5 %f ndcg10 %f ndcg20 %f" % (model_type,current_step,ndcg3,ndcg5,ndcg10,ndcg20)
     print(line)
     #print(model.save_model(sess, ndcg3))
     log.write(line + "\n")
     log.flush()
 
+@log_time_delta
 def evaluation2(sess, model, log, num_epochs=0):
     current_step = tf.train.global_step(sess, model.global_step)
     if isinstance(model, Discriminator.Discriminator):
@@ -318,24 +318,48 @@ def main():
                 sess.run(tf.global_variables_initializer())
                 # evaluation(sess,discriminator,log,0)
                 for i in range(FLAGS.num_epochs):
-                    if i > 0:
-                        samples = generate_gan(sess, generator)
-                        #print(samples)
+                    if i >= 0:
                         for j in range(FLAGS.d_epochs_num):
+                            #G generate for d 
+                            samples = generate_gan(sess, generator)
                             for _index, batch in enumerate(
-                                data_helper.batch_iter(samples, num_epochs=FLAGS.d_epochs_num,
-                                                                     batch_size=FLAGS.batch_size,
-                                                                     shuffle=True)):  # try:
+                                data_helper.batch_iter(samples, 
+                                num_epochs=FLAGS.d_epochs_num,
+                                batch_size=FLAGS.batch_size,
+                                shuffle=True)): 
+                                #data processing
+                                pred_data=[]
+                                pred_data.extend(batch[:,1])
+                                pred_data.extend(batch[:,2])
+                                pred_data = np.asarray(pred_data)
+                                pred_data_label=[]
+                                pred_data_label = [1.0] * len(batch[:,1])
+                                pred_data_label.extend([0.0] * len(batch[:,2]))
+                                pred_data_label = np.asarray(pred_data_label)  
+                                q = []
+                                q.extend(batch[:,0])
+                                q.extend(batch[:,0])
+                                q = np.asarray(q)  
+                                lengths=[]
+                                lengths.extend(batch[:,3])
+                                lengths.extend(batch[:,3])
+                                lengths=np.asarray(lengths)
 
-                                feed_dict = {discriminator.input_x_1: batch[:, 0], discriminator.input_x_2: batch[:, 1],
-                                         discriminator.input_x_3: batch[:, 2]}
+                                feed_dict = {
+                                    discriminator.input_x_1: q,
+                                    discriminator.input_x_2: pred_data,
+                                    discriminator.label: pred_data_label,
+                                    discriminator.lengths:lengths
+                                }
                                 _, step, current_loss, accuracy = sess.run(
-                                    [discriminator.train_op, discriminator.global_step, discriminator.loss,
+                                    [discriminator.train_op, 
+                                     discriminator.global_step, 
+                                     discriminator.loss,
                                      discriminator.accuracy],
                                     feed_dict)
                                 line = ("%s: DIS step %d, loss %f with acc %f " % (
                                 datetime.datetime.now().isoformat(), step, current_loss, accuracy))
-                                if _index%100==0:
+                                if _index % 5==0:
                                     print(line)
                                 loss_log.write(line+"\n")
                                 loss_log.flush()
@@ -344,85 +368,90 @@ def main():
 
                     # 我们先对生成模型迭代g_epochs_num                    
                     for g_epoch in range(FLAGS.g_epochs_num):
-                        #区分问题的标签
-                        count=0
-                        #循环每一个问题
-                        _index=0
+                        count = 0
+                        # _index = 0
+                        samples = []
                         for index,i in enumerate(number):
-                            #当问题中的term数量为0时，跳过这个问题
-                            if i==0:
-                                continue
-                            #获取当前问题下的所有term
-                            neg_alist_index = [j for j in range(count,count+i)]
-                            #pools中包含了label qid q term
-                            pools=[]
-                            #termpools中只有term
-                            termpools=[]
-                            #加载pools和termpools中的数据
-                            for z in neg_alist_index:
-                                pools.append(alist[z])
-                            for pool in pools:
-                                termpools.append(pool[3])
-                            #生成矩阵来处理
-                            termpools=np.array(termpools)
 
-                            #对于当前问题下的所有term进行循环
+                            pools=[]
+                            termpools=[]
+                            pos_term=[]
+                            length=[]
+
+                            if i == 0:
+                                continue
+                            neg_alist_index = [j for j in range(count,count+i)]
+                            
+                            for neg in neg_alist_index:
+                                pools.append(alist[neg])
+                            for pool in pools:
+                                termpools.append(pool[4])
+                            # termpools=np.array(termpools)
+
                             for  pair in pools:
-                                #获取label
-                                label=pair[0]
-                                #通过golden数据生成其他数据
-                                if int(label)==int(1):
-                                    _index = _index + 1
-                                    #加载q golden term的表达
-                                    q = pair[2]
-                                    a=pair[3]
-                                    predicteds = []
-                                    #加载embedding
-                                    samples = data_helper.loadCandidateSamples(q, a, termpools, vocab)
-                                    #通过generator对每个batch的数据来打分
-                                    for batch in data_helper.batch_iter(samples, batch_size=FLAGS.batch_size): 
-                                        feed_dict = {generator.input_x_1: batch[:, 0], generator.input_x_2: batch[:, 1], generator.input_x_3: batch[:, 2]}
-                                        predicted,score13= sess.run([generator.gan_score,generator.score13], feed_dict)
-                                        #保存所有batch的scores
-                                        predicteds.extend(predicted)
-                                    #exp使分值为正
-                                    exp_rating = np.exp(np.array(predicteds) * FLAGS.sampled_temperature)
-                                    #对 exp 归一化
-                                    #print(exp_rating)
-                                    prob = exp_rating / np.sum(exp_rating)
-                                    prob = np.reshape(prob, len(prob))
-                                    neg_alist_index=np.array([i for i in range(len(samples))])
-                                    #通过generator的分值来生成给DIS的扩展词
-                                    neg_index = np.random.choice(neg_alist_index, size=FLAGS.gan_k, p=prob,replace=False)
-                                    #加载embeddings             
-                                    subsamples = np.array( data_helper.loadCandidateSamples(q, a, termpools[neg_index], vocab))
-                                    #输入给DIS
-                                    feed_dict = {discriminator.input_x_1: subsamples[:, 0],
-                                                    discriminator.input_x_2: subsamples[:, 1],
-                                                    discriminator.input_x_3: subsamples[:, 2]}
-                                    #生成DIS reward
-                                    reward = sess.run(discriminator.reward,feed_dict)  # reward= 2 * (tf.sigmoid( score_13 ) - 
-                                    reward = np.reshape(reward, len(reward)) 
-                                    samples = np.array(samples)
-                                    #这里为啥不batch而是给出了全部数据 难道是因为参数不用更新嘛
-                                    feed_dict = {generator.input_x_1: samples[:, 0],
-                                                generator.input_x_2: samples[:, 1],
-                                                generator.neg_index: neg_index,
-                                                generator.input_x_3: samples[:, 2],
-                                                generator.reward   :reward
-                                                }
-                                    #参数更新
-                                    _, step, current_loss, positive, negative ,score13 , score12= sess.run(  
-                                                    [generator.gan_updates, generator.global_step, generator.gan_loss, generator.positive,
-                                                    generator.negative,generator.score13,generator.score12], 
-                                                     feed_dict)  
-                                    #print(score13)
-                                    line = ("%s: GEN step %d, loss %f  positive %f negative %f" % (
-                                                datetime.datetime.now().isoformat(), step, current_loss, positive, negative))
-                                    if _index%10==0:
-                                        print(line)
-                                    loss_log.write(line+"\n")
-                                    loss_log.flush()
+                                label = int(pair[0])
+                                length.append(pair[1])
+                                
+                                if label == int(1):
+                                    query = pair[3]
+                                    pos=pair[4]
+                                    pos_term.append(pos)
+
+                            candidate_list_score = []
+                            candidates = data_helper.loadCandidateSamples(query,termpools,vocab,length)
+                            
+                            for batch in data_helper.batch_iter(candidates, batch_size=FLAGS.batch_size):
+                                
+                                feed_dict = {
+                                    generator.input_x_1: np.asarray(batch[:0]),
+                                    generator.input_x_2: np.asarray(batch[:1]),
+                                    generator.lengths:np.asarray(batch[:2])
+                                }
+                                predicated = sess.run(model.gan_score, feed_dict)
+                                candidate_list_score.extend(predicated)
+
+                            exp_rating = np.exp(np.array(candidata_list_score) - np.max(candidate_list_score))
+
+                            prob = exp_rating / np.sum(exp_rating)
+                            prob = np.reshape(prob, len(prob))
+                            pn = (1-FLAGs.sampled_temperature) * prob
+
+                            for p,pair in enumerate(pools):
+                                if if int(label) == int(1):
+                                    pn[p] += FLAGS.sampled_temperature * 1.0 / len(pos_term) 
+
+                            choose_index = np.random.choice(np.arange(len(pools)), [5 * len(pos_term)], p=pn)                                                            
+                            subsamples = data_helper.loadCandidateSamples(query,termpools[choose_index], vocab,length[choose_index])
+                            ###########################################################################
+                            # Get reward and adapt it with importance sampling
+                            ###########################################################################
+                            feed_dict = {discriminator.input_x_1: np.asarray(subsamples[:, 0]),
+                                        discriminator.input_x_2: np.asarray(subsamples[:, 1]),
+                                        discriminator.length: np.asarray(subsamples[:, 2])}
+
+                            reward = sess.run(discriminator.reward, feed_dict)  
+                            reward = np.reshape(reward, len(reward)) 
+
+                            feed_dict = {generator.input_x_1: np.asarray(canditates[:, 0]),
+                                        generator.input_x_2: np.asarray(canditates[:, 1]),
+                                        generator.neg_index: choose_index,
+                                        generator.length: np.asarray(canditates[:, 2]),
+                                        generator.reward: reward
+                                        }
+
+                            _, step, current_loss,score= sess.run(  
+                                            [generator.gan_updates, 
+                                            generator.global_step, 
+                                            generator.gan_loss,  
+                                            generator.score], 
+                                            feed_dict)  
+
+                            line = ("%s: GEN step %d, loss %f  score %f " % (
+                                        datetime.datetime.now().isoformat(), step, current_loss, score))
+                            if _index % 10==0:
+                                print(line)
+                            loss_log.write(line+"\n")
+                            loss_log.flush()
                             count=count+i
                         dev_step1(sess,  generator, test1List,i*FLAGS.g_epochs_num + g_epoch)
                         evaluation(sess, generator, log, i*FLAGS.g_epochs_num + g_epoch)

@@ -62,11 +62,12 @@ def read_alist(dataset="QA1"):
     print('read_alist done ......')
     return alist
 
-def loadCandidateSamples(q,a,candidates,vocab):
+def loadCandidateSamples(q,candidates,vocab,length):
     samples=[]
     
-    for neg in candidates:
-        samples.append((encode_sent(vocab,q,20),encode_sent(vocab,a,20),encode_sent(vocab,neg,20)))
+    for i,neg in enumerate(candidates):
+        length_i = length[i]
+        samples.append((encode_sent(vocab,q,20),encode_sent(vocab,neg,20),length_i))
     return  samples
 
 #raw里加载了标签为1的例子里的所有内容
@@ -125,7 +126,7 @@ def load_val_batch(testList, vocab, index, batch):
 
 #输出在候选例子中当前所选例子的目录
 def batch_iter(data, batch_size, num_epochs=1, shuffle=False):
-    data = np.array(data)
+    #data = np.array(data)
     data_size = len(data)
     num_batches_per_epoch =int( math.ceil(len(data)/batch_size))#math.ceil 向上舍入
     for epoch in range(num_epochs):
@@ -140,6 +141,17 @@ def batch_iter(data, batch_size, num_epochs=1, shuffle=False):
             end_index = min(((batch_num + 1) * batch_size), data_size)
 
             yield shuffled_data[start_index:end_index]
+# # Get batch data from training set
+# def get_batch_data(data, index, size):
+#     pos = []
+#     neg = []
+#     for i in range(index, index + size):
+#         # line = linecache.getline(file, i)
+#         # line = line.strip().split()
+#         example = data[i]
+#         pos.append((example[0]))
+#         neg.append()
+#     return pos, neg
 
 def qid(dataset="QA1"):
     with open(dataset, 'r', encoding='utf-8') as f:
@@ -150,6 +162,7 @@ def qid(dataset="QA1"):
             num=len(item)-1
             number.append(num)
     return number
+    
 def qname(dataset="QA1"):
     qname=[]
     with open(dataset, 'r', encoding='utf-8') as f:
@@ -163,14 +176,6 @@ def qname(dataset="QA1"):
 
 def main():
     
-    #vocab = build_vocab()
-    #embeddings =load_vectors(vocab)
-    #alist = read_alist(dataset="QA1")
-
-
-
-
-
     #raw = read_raw("QA1")
     number=qid("QA1")
     print(len(number))
@@ -178,25 +183,7 @@ def main():
     print(qs)
     print(len(qs))
 
-    #test1List = loadTestSet("test1")
-    #test2List= loadTestSet("test2")
-    #devList= loadTestSet("dev")
-    #testSet=[("test1",test1List),("test2",test2List),("dev",devList)]
-'''
-    name="vectors/pre-word2vec.txt"
-    pickle.dump(embeddings, open(name, 'wb'))
-    for _index ,pair in enumerate (raw):
-        if _index %100==0:
-            print( "have sampled %d pairs" % _index)
-        q=pair[2]
-        a=pair[3]
-
-        pools=np.random.choice(alist,size=100)    
     
-        canditates=loadCandidateSamples(q,a,pools,vocab)
-        for batch in batch_iter(canditates,batch_size=50):
-            print(batch)
-'''
 
 
     
