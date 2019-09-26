@@ -46,19 +46,20 @@ class score:
 
         with tf.name_scope("prepare"):
             q  =tf.nn.embedding_lookup(self.Embedding_W, self.input_x_1)
-            pos=tf.nn.embedding_lookup(self.Embedding_W, self.input_x_2)
+            pos=tf.nn.embedding_lookup(self.Embedding_W, self.input_x_2[...,0])
+            pos = tf.expand_dims(pos,1)
             
-            self.x12=self.data_concat(q,pos)
+            self.q_pos=tf.concat([q,pos],1)
         
 
 
-        fw_cell = tf.nn.rnn_cell.LSTMCell(hidden_size,forget_bias=1.0)
-        bw_cell = tf.nn.rnn_cell.LSTMCell(hidden_size,forget_bias=1.0)
+        fw_cell = tf.nn.rnn_cell.LSTMCell(hidden_size+1,forget_bias=1.0)
+        bw_cell = tf.nn.rnn_cell.LSTMCell(hidden_size+1,forget_bias=1.0)
        
 
         with tf.variable_scope("gen"):
            
-            outputs, states=tf.nn.bidirectional_dynamic_rnn(fw_cell,bw_cell,self.x12,sequence_length=self.lengths,dtype=tf.float32)
+            outputs, states=tf.nn.bidirectional_dynamic_rnn(fw_cell,bw_cell,self.q_pos,sequence_length = self.lengths+1,dtype=tf.float32)
             
             states_fw, states_bw = states
             
@@ -71,7 +72,7 @@ class score:
 
 
         with tf.variable_scope('MLP_gen'):
-            self.W1 = tf.get_variable('w1',[2*hidden_size,1], initializer=tf.truncated_normal_initializer(mean=0.0, stddev=0.1))
+            self.W1 = tf.get_variable('w1',[2*hidden_size+2,1], initializer=tf.truncated_normal_initializer(mean=0.0, stddev=0.1))
             self.b1 = tf.get_variable('b1',[1],initializer=tf.constant_initializer(0.0))
             #self.W2 = tf.get_variable('w2',[self.hidden_size,1],initializer=tf.truncated_normal_initializer(mean=0.0, stddev=0.1))
 
