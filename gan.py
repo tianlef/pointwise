@@ -27,6 +27,9 @@ tf.flags.DEFINE_float("l2_reg_lambda", 0, "L2 regularizaion lambda (default: 0.0
 tf.flags.DEFINE_float("learning_rate", 0.05, "learning_rate (default: 0.1)")
 
 # Training parameters
+tf.flags.DEFINE_float("sampled_temperature", 0.5, " the temperature of sampling")
+
+
 tf.flags.DEFINE_integer("hidden_size",50, "Hidden Size (default: 100)")
 tf.flags.DEFINE_integer("batch_size", 25, "Batch Size (default: 64)")
 tf.flags.DEFINE_integer("num_epochs", 300, "Number of training epochs (default: 200)")
@@ -34,10 +37,9 @@ tf.flags.DEFINE_integer("evaluate_every", 10, "Evaluate model on dev set after t
 tf.flags.DEFINE_integer("checkpoint_every", 100, "Save model after this many steps (default: 100)")
 tf.flags.DEFINE_integer("pools_size", 50, "The sampled set of a positive ample, which is bigger than 500")
 tf.flags.DEFINE_integer("gen_pools_size", 20, "The sampled set of a positive ample, which is bigger than 500")
-tf.flags.DEFINE_integer("g_epochs_num", 2, " the num_epochs of generator per epoch")
+tf.flags.DEFINE_integer("g_epochs_num", 5, " the num_epochs of generator per epoch")
 tf.flags.DEFINE_integer("d_epochs_num", 5, " the num_epochs of discriminator per epoch")
 tf.flags.DEFINE_integer("sampled_size", 100, " the real selectd set from the The sampled pools")
-tf.flags.DEFINE_integer("sampled_temperature", 0.5, " the temperature of sampling")
 tf.flags.DEFINE_integer("gan_k", 10, "he number of samples of gan")
 # Misc Parameters
 tf.flags.DEFINE_boolean("allow_soft_placement", True, "Allow device soft device placement")
@@ -61,11 +63,14 @@ number = data_helper.qid("WebAP/qeo-train.txt")
 numbertest = data_helper.qid("WebAP/qeo-test.txt")
 qstest = data_helper.qname("WebAP/qeo-test.txt")
 # 加载了几个测试集
-test1List = data_helper.loadTestSet(dataset="WebAP",filename="term-test")
+test_List = data_helper.loadTestSet(dataset="WebAP",filename="term-test")
+train_List = data_helper.loadTestSet(dataset="WebAP",filename="term-train")
 
 print("Load done...")
-log_precision = 'WebAP/log/qterm.gan_precision' + timeStamp
-loss_precision = 'WebAP/log/qterm.gan_loss' + timeStamp
+log_gan_train_ndcg = 'WebAP/log/log_gan_train_ndcg' 
+log_gan_test_ndcg = 'WebAP/log/log_gan_test_ndcg' 
+log_dis_test_ndcg = 'WebAP/log/log_dis_test_ndcg' 
+log_dis_train_ndcg = 'WebAP/log/log_dis_train_ndcg' 
 
 from functools import wraps
 
@@ -102,6 +107,7 @@ def generate_gan(sess, model, loss_type="point"):
         for pool in pools:
             termpools.append(pool[4])
         termpools=np.array(termpools)
+        
 
         for  pair in pools:
             if flag == 0:
@@ -112,24 +118,33 @@ def generate_gan(sess, model, loss_type="point"):
             if int(label) == int(1):
                 pos=pair[4]
                 pos_term.append(pos)
+        if len(pos_term) == 0:
+            continue
                 
-        candidata_list_score = []
+        candidate_list_score = []
         canditates = data_helper.loadCandidateSamples(query,termpools,vocab,length)
         for batch in data_helper.batch_iter(canditates, batch_size=FLAGS.batch_size):
-            feed_dict = {model.input_x_1: np.array(batch[:,0]), 
-                        model.input_x_2: np.array(batch[:,1]),
-                        model.length: np.array(batch[:2])}
-            predicated = sess.run(model.gan_score, feed_dict)
+            input_x_1 = []
+            input_x_2 = []
+            input_x_3 = []
+            for item in batch:
+                input_x_1.append(item[0])
+                input_x_2.append(item[1])
+                input_x_3.append(item[2])
+            feed_dict = {model.input_x_1: np.array(input_x_1), 
+                        model.input_x_2: np.array(input_x_2),
+                        model.lengths: np.array(input_x_3)}
+            predicated = sess.run(model.score, feed_dict)
             candidate_list_score.extend(predicated)
         #softmax for candicate
         #exp_rating = np.exp(np.array(predicteds) * FLAGS.sampled_temperature * 1.5)
-        exp_rating = np.exp(np.array(candidata_list_score) - np.max(candidate_list_score))
+        exp_rating = np.exp(np.array(candidate_list_score) - np.max(candidate_list_score))
         prob = exp_rating / np.sum(exp_rating)
         prob = np.reshape(prob, len(prob))
-        neg_samples = np.random.choice(termpools, size=pos_number, p=prob, replace=False)
+        neg_samples = np.random.choice(termpools, size=len(pos_term), p=prob, replace=False)
         # for neg in neg_samples:
         #     samples.append([encode_sent(vocab, item, FLAGS.max_sequence_length) for item in [qq, aa, neg]])
-        for j in pos_term:
+        for j in range(len(pos_term)):
             samples.append((
             encode_sent(vocab,query,FLAGS.max_sequence_length),
             encode_sent(vocab,pos_term[j],FLAGS.max_sequence_length),
@@ -172,7 +187,7 @@ def ndcg_at_k(r, k):
     return dcg_at_k(r, k) / dcg_max
 
 @log_time_delta
-def dev_step1(sess, cnn, testList):
+def dev_step_test(sess, cnn, testList):
     ndcg3=[]
     ndcg5=[]
     ndcg10=[]
@@ -209,7 +224,7 @@ def dev_step1(sess, cnn, testList):
 
 
 @log_time_delta
-def dev_step2(sess, cnn, testList):
+def dev_step_train(sess, cnn, testList):
     ndcg3=[]
     ndcg5=[]
     ndcg10=[]
@@ -243,7 +258,7 @@ def dev_step2(sess, cnn, testList):
         return sum(ndcg3) * 1.0 / len(ndcg3),sum(ndcg5) * 1.0 / len(ndcg5),sum(ndcg10) * 1.0 / len(ndcg10),sum(ndcg20) * 1.0 / len(ndcg20)
 
 @log_time_delta
-def evaluation1(sess, model, log, num_epochs=0):
+def evaluation_test(sess, model, log, num_epochs=0):
     current_step = tf.train.global_step(sess, model.global_step)
     if isinstance(model, Discriminator.Discriminator):
         model_type = "Dis"
@@ -252,7 +267,7 @@ def evaluation1(sess, model, log, num_epochs=0):
     now=time.time()
     local_time=time.localtime(now)
     this=str(time.strftime('%Y-%m-%d %H:%M:%S',local_time))
-    ndcg3,ndcg5,ndcg10,ndcg20 = dev_step1(sess, model, test1List)
+    ndcg3,ndcg5,ndcg10,ndcg20 = dev_step_test(sess, model, test_List)
     line = this+" type: %s test1: %d epoch: ndcg3 %f ndcg5 %f ndcg10 %f ndcg20 %f" % (model_type,current_step,ndcg3,ndcg5,ndcg10,ndcg20)
     print(line)
     #print(model.save_model(sess, ndcg3))
@@ -260,7 +275,7 @@ def evaluation1(sess, model, log, num_epochs=0):
     log.flush()
 
 @log_time_delta
-def evaluation2(sess, model, log, num_epochs=0):
+def evaluation_train(sess, model, log, num_epochs=0):
     current_step = tf.train.global_step(sess, model.global_step)
     if isinstance(model, Discriminator.Discriminator):
         model_type = "Dis"
@@ -271,7 +286,7 @@ def evaluation2(sess, model, log, num_epochs=0):
     this=str(time.strftime('%Y-%m-%d %H:%M:%S',local_time))
     
 
-    ndcg3,ndcg5,ndcg10,ndcg20 = dev_step2(sess, model, test2List)
+    ndcg3,ndcg5,ndcg10,ndcg20 = dev_step_train(sess, model, train_List)
     line = this+" type: %s traintest1: %d epoch: ndcg3 %f ndcg5 %f ndcg10 %f ndcg20 %f" % (model_type,current_step,ndcg3,ndcg5,ndcg10,ndcg20)
     print(line)
     #print(model.save_model(sess, ndcg3))
@@ -289,7 +304,7 @@ def main():
                                           gpu_options=gpu_options)
             sess = tf.Session(config=session_conf)
 
-            with sess.as_default(), open(log_precision, "w") as log, open(loss_precision, "w") as loss_log:
+            with sess.as_default(), open(log_gan_train_ndcg, "w") as log_gan_train, open(log_gan_test_ndcg, "w") as log_gan_test,open(log_dis_train_ndcg, "w") as log_dis_train,open(log_dis_test_ndcg, "w") as log_dis_test:
                 
                 loss_type = "point"
                 discriminator = Discriminator.Discriminator(
@@ -301,7 +316,7 @@ def main():
                     embeddings=embeddings,
                     hidden_size=FLAGS.hidden_size,
                     paras=None,
-                    loss=loss_type)
+                    loss_type=loss_type)
 
                 generator = Generator.Generator(
                     sequence_length=FLAGS.max_sequence_length,
@@ -313,43 +328,45 @@ def main():
                     embeddings=embeddings,
                     hidden_size=FLAGS.hidden_size,
                     paras=None,
-                    loss=loss_type)
+                    loss_type=loss_type)
 
                 sess.run(tf.global_variables_initializer())
                 # evaluation(sess,discriminator,log,0)
                 for i in range(FLAGS.num_epochs):
                     if i >= 0:
-                        for j in range(FLAGS.d_epochs_num):
+                        for d_epoch in range(FLAGS.d_epochs_num):
                             #G generate for d 
                             samples = generate_gan(sess, generator)
                             for _index, batch in enumerate(
                                 data_helper.batch_iter(samples, 
                                 num_epochs=FLAGS.d_epochs_num,
                                 batch_size=FLAGS.batch_size,
-                                shuffle=True)): 
+                                shuffle=False)): 
                                 #data processing
-                                pred_data=[]
-                                pred_data.extend(batch[:,1])
-                                pred_data.extend(batch[:,2])
-                                pred_data = np.asarray(pred_data)
-                                pred_data_label=[]
-                                pred_data_label = [1.0] * len(batch[:,1])
-                                pred_data_label.extend([0.0] * len(batch[:,2]))
-                                pred_data_label = np.asarray(pred_data_label)  
-                                q = []
-                                q.extend(batch[:,0])
-                                q.extend(batch[:,0])
-                                q = np.asarray(q)  
-                                lengths=[]
-                                lengths.extend(batch[:,3])
-                                lengths.extend(batch[:,3])
-                                lengths=np.asarray(lengths)
+                                dis_input_x_1 = []
+                                dis_input_x_2 = []
+                                dis_input_x_3= []
+                                dis_label = []
+                                for item in batch:
+                                    #pos 
+                                    dis_input_x_1.append(item[0])
+                                    dis_label.append(1.0)
+                                    dis_input_x_2.append(item[1])
+                                    dis_input_x_3.append(item[3])
+                                    #neg
+                                    dis_input_x_1.append(item[0])
+                                    dis_label.append(0.0)
+                                    dis_input_x_2.append(item[2])
+                                    dis_input_x_3.append(item[3])
+                                
+                               
+                                
 
                                 feed_dict = {
-                                    discriminator.input_x_1: q,
-                                    discriminator.input_x_2: pred_data,
-                                    discriminator.label: pred_data_label,
-                                    discriminator.lengths:lengths
+                                    discriminator.input_x_1: np.array(dis_input_x_1),
+                                    discriminator.input_x_2: np.array(dis_input_x_2),
+                                    discriminator.label: np.array(dis_label),
+                                    discriminator.lengths:np.array(dis_input_x_3)
                                 }
                                 _, step, current_loss, accuracy = sess.run(
                                     [discriminator.train_op, 
@@ -357,14 +374,15 @@ def main():
                                      discriminator.loss,
                                      discriminator.accuracy],
                                     feed_dict)
-                                line = ("%s: DIS step %d, loss %f with acc %f " % (
-                                datetime.datetime.now().isoformat(), step, current_loss, accuracy))
-                                if _index % 5==0:
-                                    print(line)
-                                loss_log.write(line+"\n")
-                                loss_log.flush()
+                                # line = ("%s: DIS step %d, loss %f with acc %f " % (
+                                # datetime.datetime.now().isoformat(), step, current_loss, accuracy))
+                                # if _index % 5==0:
+                                #     print(line)
+                                # loss_log.write(line+"\n")
+                                # loss_log.flush()
 
-                        evaluation(sess, discriminator, log, i)
+                        evaluation_test(sess, discriminator, log_dis_test, i*FLAGS.d_epochs_num + d_epoch)
+                        evaluation_train(sess, discriminator, log_dis_train, i*FLAGS.d_epochs_num + d_epoch)
 
                     # 我们先对生成模型迭代g_epochs_num                    
                     for g_epoch in range(FLAGS.g_epochs_num):
@@ -386,7 +404,7 @@ def main():
                                 pools.append(alist[neg])
                             for pool in pools:
                                 termpools.append(pool[4])
-                            # termpools=np.array(termpools)
+                            termpools=np.array(termpools)
 
                             for  pair in pools:
                                 label = int(pair[0])
@@ -397,27 +415,38 @@ def main():
                                     pos=pair[4]
                                     pos_term.append(pos)
 
+                            if len(pos_term) == 0:
+                                continue
+                            length = np.array(length)
+
                             candidate_list_score = []
                             candidates = data_helper.loadCandidateSamples(query,termpools,vocab,length)
                             
                             for batch in data_helper.batch_iter(candidates, batch_size=FLAGS.batch_size):
-                                
+                                can_input_x_1 = []
+                                can_input_x_2 = []
+                                can_length = []
+                                for can in batch:
+                                    can_input_x_1.append(can[0])
+                                    can_input_x_2.append(can[1])
+                                    can_length.append(can[2])
+
                                 feed_dict = {
-                                    generator.input_x_1: np.asarray(batch[:0]),
-                                    generator.input_x_2: np.asarray(batch[:1]),
-                                    generator.lengths:np.asarray(batch[:2])
+                                    generator.input_x_1: np.asarray(can_input_x_1),
+                                    generator.input_x_2: np.asarray(can_input_x_2),
+                                    generator.lengths:np.asarray(can_length)
                                 }
-                                predicated = sess.run(model.gan_score, feed_dict)
+                                predicated = sess.run(generator.score, feed_dict)
                                 candidate_list_score.extend(predicated)
 
-                            exp_rating = np.exp(np.array(candidata_list_score) - np.max(candidate_list_score))
+                            exp_rating = np.exp(np.array(candidate_list_score) - np.max(candidate_list_score))
 
                             prob = exp_rating / np.sum(exp_rating)
                             prob = np.reshape(prob, len(prob))
-                            pn = (1-FLAGs.sampled_temperature) * prob
+                            pn = (1-FLAGS.sampled_temperature) * prob
 
                             for p,pair in enumerate(pools):
-                                if if int(label) == int(1):
+                                if  int(pair[0]) == int(1):
                                     pn[p] += FLAGS.sampled_temperature * 1.0 / len(pos_term) 
 
                             choose_index = np.random.choice(np.arange(len(pools)), [5 * len(pos_term)], p=pn)                                                            
@@ -425,17 +454,32 @@ def main():
                             ###########################################################################
                             # Get reward and adapt it with importance sampling
                             ###########################################################################
-                            feed_dict = {discriminator.input_x_1: np.asarray(subsamples[:, 0]),
-                                        discriminator.input_x_2: np.asarray(subsamples[:, 1]),
-                                        discriminator.length: np.asarray(subsamples[:, 2])}
+                            sub_input_x_1 = []
+                            sub_input_x_2 = []
+                            sub_length = []
+                            for sub in subsamples:
+                                sub_input_x_1.append(sub[0])
+                                sub_input_x_2.append(sub[1])
+                                sub_length.append(sub[2])
+                            feed_dict = {discriminator.input_x_1: np.asarray(sub_input_x_1),
+                                        discriminator.input_x_2: np.asarray(sub_input_x_2),
+                                        discriminator.lengths: np.asarray(sub_length)}
 
                             reward = sess.run(discriminator.reward, feed_dict)  
                             reward = np.reshape(reward, len(reward)) 
 
-                            feed_dict = {generator.input_x_1: np.asarray(canditates[:, 0]),
-                                        generator.input_x_2: np.asarray(canditates[:, 1]),
+                            all_input_x_1 = []
+                            all_input_x_2 = []
+                            all_input_length = []
+                            for all_item in candidates:
+                                all_input_x_1.append(all_item[0])
+                                all_input_x_2.append(all_item[1])
+                                all_input_length.append(all_item[2])
+
+                            feed_dict = {generator.input_x_1: np.asarray(all_input_x_1),
+                                        generator.input_x_2: np.asarray(all_input_x_2),
                                         generator.neg_index: choose_index,
-                                        generator.length: np.asarray(canditates[:, 2]),
+                                        generator.lengths: np.asarray(all_input_length),
                                         generator.reward: reward
                                         }
 
@@ -446,16 +490,16 @@ def main():
                                             generator.score], 
                                             feed_dict)  
 
-                            line = ("%s: GEN step %d, loss %f  score %f " % (
-                                        datetime.datetime.now().isoformat(), step, current_loss, score))
-                            if _index % 10==0:
-                                print(line)
-                            loss_log.write(line+"\n")
-                            loss_log.flush()
+                            # line = ("%s: GEN step %d, loss %f  score %f " % (
+                            #             datetime.datetime.now().isoformat(), step, current_loss, score))
+                            # if _index % 10==0:
+                            #     print(line)
+                            # loss_log.write(line+"\n")
+                            # loss_log.flush()
                             count=count+i
-                        dev_step1(sess,  generator, test1List,i*FLAGS.g_epochs_num + g_epoch)
-                        evaluation(sess, generator, log, i*FLAGS.g_epochs_num + g_epoch)
-                        log.flush()
+                        evaluation_test(sess, generator, log_gan_test, i*FLAGS.g_epochs_num + g_epoch)
+                        evaluation_train(sess, generator, log_gan_train, i*FLAGS.g_epochs_num + g_epoch)
+
                     
 
 
