@@ -27,18 +27,18 @@ tf.flags.DEFINE_float("l2_reg_lambda", 0, "L2 regularizaion lambda (default: 0.0
 tf.flags.DEFINE_float("learning_rate", 0.05, "learning_rate (default: 0.1)")
 
 # Training parameters
-tf.flags.DEFINE_float("sampled_temperature", 0.5, " the temperature of sampling")
+tf.flags.DEFINE_float("sampled_temperature", 0.2, " the temperature of sampling")
 
 
 tf.flags.DEFINE_integer("hidden_size",50, "Hidden Size (default: 100)")
 tf.flags.DEFINE_integer("batch_size", 25, "Batch Size (default: 64)")
-tf.flags.DEFINE_integer("num_epochs", 300, "Number of training epochs (default: 200)")
+tf.flags.DEFINE_integer("num_epochs", 10000, "Number of training epochs (default: 200)")
 tf.flags.DEFINE_integer("evaluate_every", 10, "Evaluate model on dev set after this many steps (default: 100)")
 tf.flags.DEFINE_integer("checkpoint_every", 100, "Save model after this many steps (default: 100)")
 tf.flags.DEFINE_integer("pools_size", 50, "The sampled set of a positive ample, which is bigger than 500")
 tf.flags.DEFINE_integer("gen_pools_size", 20, "The sampled set of a positive ample, which is bigger than 500")
 tf.flags.DEFINE_integer("g_epochs_num", 5, " the num_epochs of generator per epoch")
-tf.flags.DEFINE_integer("d_epochs_num", 5, " the num_epochs of discriminator per epoch")
+tf.flags.DEFINE_integer("d_epochs_num", 1, " the num_epochs of discriminator per epoch")
 tf.flags.DEFINE_integer("sampled_size", 100, " the real selectd set from the The sampled pools")
 tf.flags.DEFINE_integer("gan_k", 10, "he number of samples of gan")
 # Misc Parameters
@@ -259,7 +259,7 @@ def dev_step_train(sess, cnn, testList):
 
 @log_time_delta
 def evaluation_test(sess, model, log, num_epochs=0):
-    current_step = tf.train.global_step(sess, model.global_step)
+    # current_step = tf.train.global_step(sess, model.global_step)
     if isinstance(model, Discriminator.Discriminator):
         model_type = "Dis"
     else:
@@ -268,7 +268,7 @@ def evaluation_test(sess, model, log, num_epochs=0):
     local_time=time.localtime(now)
     this=str(time.strftime('%Y-%m-%d %H:%M:%S',local_time))
     ndcg3,ndcg5,ndcg10,ndcg20 = dev_step_test(sess, model, test_List)
-    line = this+" type: %s test1: %d epoch: ndcg3 %f ndcg5 %f ndcg10 %f ndcg20 %f" % (model_type,current_step,ndcg3,ndcg5,ndcg10,ndcg20)
+    line = this+" type: %s test1: %d epoch: ndcg3 %f ndcg5 %f ndcg10 %f ndcg20 %f" % (model_type,num_epochs,ndcg3,ndcg5,ndcg10,ndcg20)
     print(line)
     #print(model.save_model(sess, ndcg3))
     log.write(line + "\n")
@@ -276,7 +276,7 @@ def evaluation_test(sess, model, log, num_epochs=0):
 
 @log_time_delta
 def evaluation_train(sess, model, log, num_epochs=0):
-    current_step = tf.train.global_step(sess, model.global_step)
+    # current_step = tf.train.global_step(sess, model.global_step)
     if isinstance(model, Discriminator.Discriminator):
         model_type = "Dis"
     else:
@@ -287,7 +287,7 @@ def evaluation_train(sess, model, log, num_epochs=0):
     
 
     ndcg3,ndcg5,ndcg10,ndcg20 = dev_step_train(sess, model, train_List)
-    line = this+" type: %s traintest1: %d epoch: ndcg3 %f ndcg5 %f ndcg10 %f ndcg20 %f" % (model_type,current_step,ndcg3,ndcg5,ndcg10,ndcg20)
+    line = this+" type: %s traintest1: %d epoch: ndcg3 %f ndcg5 %f ndcg10 %f ndcg20 %f" % (model_type,num_epochs,ndcg3,ndcg5,ndcg10,ndcg20)
     print(line)
     #print(model.save_model(sess, ndcg3))
     log.write(line + "\n")
@@ -358,9 +358,6 @@ def main():
                                     dis_label.append(0.0)
                                     dis_input_x_2.append(item[2])
                                     dis_input_x_3.append(item[3])
-                                
-                               
-                                
 
                                 feed_dict = {
                                     discriminator.input_x_1: np.array(dis_input_x_1),
@@ -389,16 +386,16 @@ def main():
                         count = 0
                         # _index = 0
                         samples = []
-                        for index,i in enumerate(number):
+                        for index,num in enumerate(number):
 
                             pools=[]
                             termpools=[]
                             pos_term=[]
                             length=[]
 
-                            if i == 0:
+                            if num == 0:
                                 continue
-                            neg_alist_index = [j for j in range(count,count+i)]
+                            neg_alist_index = [j for j in range(count,count+num)]
                             
                             for neg in neg_alist_index:
                                 pools.append(alist[neg])
@@ -412,7 +409,7 @@ def main():
                                 
                                 if label == int(1):
                                     query = pair[3]
-                                    pos=pair[4]
+                                    pos = pair[4]
                                     pos_term.append(pos)
 
                             if len(pos_term) == 0:
@@ -496,7 +493,7 @@ def main():
                             #     print(line)
                             # loss_log.write(line+"\n")
                             # loss_log.flush()
-                            count=count+i
+                            count=count+num
                         evaluation_test(sess, generator, log_gan_test, i*FLAGS.g_epochs_num + g_epoch)
                         evaluation_train(sess, generator, log_gan_train, i*FLAGS.g_epochs_num + g_epoch)
 
